@@ -213,41 +213,44 @@ export default function PoseDetector({ exercise }: PoseDetectorProps) {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-950 text-white font-sans">
-      <header className="absolute top-0 z-50 w-full p-6 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent">
-        <Link href="/workout" className="flex items-center gap-2 text-slate-300 hover:text-white transition-colors backdrop-blur-md bg-black/30 px-4 py-2 rounded-full border border-white/10">
-          <ArrowLeft className="h-5 w-5" />
-          <span className="font-medium">Back</span>
+    <div className="flex flex-1 flex-col bg-slate-950 text-white font-sans min-h-[calc(100vh-4rem)]">
+      {/* Mobile-optimized Header */}
+      <header className="absolute top-0 z-50 w-full p-4 flex justify-between items-center bg-gradient-to-b from-black/80 to-transparent">
+        <Link href="/workout" className="flex items-center gap-1 text-slate-300 hover:text-white transition-colors backdrop-blur-md bg-black/40 px-3 py-1.5 rounded-full border border-white/10 text-xs">
+          <ArrowLeft className="h-4 w-4" />
+          <span className="font-semibold">Back</span>
         </Link>
-        <div className="flex items-center gap-4">
-          <div className="backdrop-blur-md bg-black/50 px-6 py-2 rounded-full border border-white/10">
-            <span className="text-slate-400 text-sm uppercase tracking-wider font-bold mr-2">Reps</span>
-            <span className="text-3xl font-extrabold text-indigo-400">{reps}</span>
-          </div>
-          <div className="backdrop-blur-md bg-black/50 px-6 py-2 rounded-full border border-white/10">
-            <span className="text-slate-400 text-sm uppercase tracking-wider font-bold mr-2">Score</span>
-            <span className="text-3xl font-extrabold text-green-400">{score}</span>
-          </div>
-          <button 
-            onClick={handleFinishWorkout}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-3 rounded-full font-bold shadow-lg shadow-indigo-500/30 transition-all border border-indigo-400/50"
-          >
-            Finish
-          </button>
-        </div>
+        <button 
+          onClick={handleFinishWorkout}
+          className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-md shadow-indigo-500/20 transition-all border border-indigo-400/40"
+        >
+          Finish
+        </button>
       </header>
 
-      <main className="flex-1 relative flex items-center justify-center overflow-hidden">
+      {/* Floating Status Bar for Reps & Score */}
+      <div className="absolute top-16 left-4 right-4 z-40 flex gap-3">
+        <div className="flex-1 backdrop-blur-md bg-black/60 px-4 py-2 rounded-xl border border-white/5 flex items-center justify-between">
+          <span className="text-slate-400 text-[10px] uppercase tracking-wider font-bold">Reps</span>
+          <span className="text-2xl font-extrabold text-indigo-400">{reps}</span>
+        </div>
+        <div className="flex-1 backdrop-blur-md bg-black/60 px-4 py-2 rounded-xl border border-white/5 flex items-center justify-between">
+          <span className="text-slate-400 text-[10px] uppercase tracking-wider font-bold">Score</span>
+          <span className="text-2xl font-extrabold text-green-400">{score}</span>
+        </div>
+      </div>
+
+      <main className="flex-1 relative flex items-center justify-center overflow-hidden px-4">
         {!isLoaded && (
           <div className="absolute inset-0 flex items-center justify-center bg-slate-900 z-10">
             <div className="flex flex-col items-center">
-              <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-4"></div>
-              <p className="text-slate-400">Loading AI Models...</p>
+              <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+              <p className="text-xs text-slate-450">Loading AI Models...</p>
             </div>
           </div>
         )}
         
-        <div className="relative w-full max-w-5xl aspect-video bg-black rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
+        <div className="relative w-full aspect-video bg-black rounded-xl overflow-hidden border border-white/10 shadow-2xl">
           <video 
             ref={videoRef} 
             className="absolute inset-0 w-full h-full object-cover transform -scale-x-100" 
@@ -261,12 +264,12 @@ export default function PoseDetector({ exercise }: PoseDetectorProps) {
           ></canvas>
 
           {/* Feedback Overlay */}
-          <div className="absolute bottom-10 left-0 right-0 flex justify-center">
-            <div className={`backdrop-blur-md bg-black/60 px-8 py-4 rounded-2xl border-2 transition-colors ${
-              feedback.includes("Good") ? "border-green-500/50 text-green-400" : 
-              feedback.includes("Position") ? "border-white/20 text-white" : "border-amber-500/50 text-amber-400"
+          <div className="absolute bottom-6 left-4 right-4 flex justify-center">
+            <div className={`backdrop-blur-md bg-black/70 px-5 py-3 rounded-xl border transition-all duration-300 text-center ${
+              feedback.includes("Good") ? "border-green-500/40 text-green-400" : 
+              feedback.includes("Position") ? "border-white/10 text-white" : "border-amber-500/40 text-amber-400 animate-pulse"
             }`}>
-              <h2 className="text-2xl font-bold tracking-tight">{feedback}</h2>
+              <h2 className="text-sm font-bold tracking-wide uppercase">{feedback}</h2>
             </div>
           </div>
         </div>

@@ -11,8 +11,6 @@ export default function Leaderboard() {
 
   useEffect(() => {
     const fetchLeaderboard = async () => {
-      // In a real app we'd query the 'leaderboard' view we created,
-      // but if the view isn't created yet we'll query 'workouts' directly as a fallback
       try {
         const { data, error } = await supabase
           .from('leaderboard')
@@ -22,10 +20,8 @@ export default function Leaderboard() {
         
         if (error) {
           console.error("View might not exist, falling back to workouts table");
-          // Fallback logic if view doesn't exist
           const { data: workoutsData } = await supabase.from('workouts').select('*');
           if (workoutsData) {
-            // Aggregate in JS as a fallback
             const aggregated: Record<string, any> = {};
             workoutsData.forEach((w) => {
               if (!aggregated[w.user_id]) {
@@ -59,53 +55,54 @@ export default function Leaderboard() {
   }, []);
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-950 text-slate-50 font-sans">
-      <header className="sticky top-0 z-50 border-b border-white/10 bg-slate-950/80 backdrop-blur-md">
-        <div className="container mx-auto flex h-16 items-center px-6">
-          <Link href="/" className="flex items-center gap-2 text-slate-300 hover:text-white transition-colors">
-            <ArrowLeft className="h-5 w-5" />
-            <span className="font-medium">Back to Home</span>
-          </Link>
-        </div>
+    <div className="flex flex-col bg-slate-950 text-slate-50 font-sans">
+      {/* Mobile Top App Bar */}
+      <header className="sticky top-0 z-40 flex h-14 items-center justify-between px-6 border-b border-white/5 bg-slate-950/80 backdrop-blur-md">
+        <Link href="/" className="flex items-center gap-2 text-slate-300 hover:text-white transition-colors">
+          <ArrowLeft className="h-4 w-4" />
+          <span className="text-xs font-semibold">Home</span>
+        </Link>
+        <span className="text-sm font-semibold">Leaderboard</span>
+        <div className="w-10"></div>
       </header>
 
-      <main className="flex-1 container mx-auto px-6 py-12">
-        <div className="max-w-3xl mx-auto">
-          <div className="flex items-center gap-4 mb-10">
-            <div className="rounded-full bg-yellow-500/20 p-4 border border-yellow-500/30">
-              <Trophy className="h-8 w-8 text-yellow-500" />
-            </div>
-            <div>
-              <h1 className="text-4xl font-extrabold tracking-tight text-white">
-                Global Leaderboard
-              </h1>
-              <p className="text-slate-400 mt-1">
-                Ranked by total training volume.
-              </p>
-            </div>
+      <main className="flex-1 px-6 py-6 pb-20">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="rounded-full bg-yellow-500/10 p-3 border border-yellow-500/20">
+            <Trophy className="h-6 w-6 text-yellow-500" />
           </div>
+          <div>
+            <h1 className="text-xl font-extrabold tracking-tight text-white">
+              Global Rankings
+            </h1>
+            <p className="text-xs text-slate-400">
+              Ranked by total training volume.
+            </p>
+          </div>
+        </div>
 
-          <div className="rounded-2xl border border-white/10 bg-slate-900/50 overflow-hidden">
-            {loading ? (
-              <div className="p-12 text-center text-slate-400">Loading rankings...</div>
-            ) : leaders.length === 0 ? (
-              <div className="p-12 text-center text-slate-400">No workout data found. Be the first!</div>
-            ) : (
-              <table className="w-full text-left">
-                <thead className="bg-slate-900 border-b border-white/10 text-xs uppercase tracking-wider text-slate-400">
+        <div className="rounded-xl border border-white/5 bg-slate-900/30 overflow-hidden">
+          {loading ? (
+            <div className="p-12 text-center text-xs text-slate-400">Loading rankings...</div>
+          ) : leaders.length === 0 ? (
+            <div className="p-12 text-center text-xs text-slate-400">No workout data found. Be the first!</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left min-w-[320px]">
+                <thead className="bg-slate-900/80 border-b border-white/5 text-[10px] uppercase tracking-wider text-slate-450">
                   <tr>
-                    <th className="px-6 py-4 font-semibold">Rank</th>
-                    <th className="px-6 py-4 font-semibold">User ID</th>
-                    <th className="px-6 py-4 font-semibold text-right">Volume</th>
-                    <th className="px-6 py-4 font-semibold text-right">Best Score</th>
-                    <th className="px-6 py-4 font-semibold text-right">Workouts</th>
+                    <th className="px-4 py-3 font-semibold w-12 text-center">Rank</th>
+                    <th className="px-4 py-3 font-semibold">User</th>
+                    <th className="px-4 py-3 font-semibold text-right">Volume</th>
+                    <th className="px-4 py-3 font-semibold text-right">Best</th>
+                    <th className="px-4 py-3 font-semibold text-right">Workouts</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/5">
+                <tbody className="divide-y divide-white/5 text-xs">
                   {leaders.map((leader, index) => (
-                    <tr key={leader.user_id} className="hover:bg-slate-800/30 transition-colors">
-                      <td className="px-6 py-4">
-                        <div className={`flex items-center justify-center w-8 h-8 rounded-full font-bold ${
+                    <tr key={leader.user_id} className="hover:bg-slate-800/20 transition-colors">
+                      <td className="px-4 py-3">
+                        <div className={`flex items-center justify-center w-6 h-6 rounded-full font-bold text-xs ${
                           index === 0 ? 'bg-yellow-500 text-yellow-950' :
                           index === 1 ? 'bg-slate-300 text-slate-800' :
                           index === 2 ? 'bg-amber-700 text-amber-100' :
@@ -114,26 +111,27 @@ export default function Leaderboard() {
                           {index + 1}
                         </div>
                       </td>
-                      <td className="px-6 py-4 font-mono text-sm text-slate-300">
-                        {leader.user_id.substring(0, 8)}...
+                      <td className="px-4 py-3 font-mono text-slate-300">
+                        {leader.user_id.substring(0, 6)}...
                       </td>
-                      <td className="px-6 py-4 text-right font-semibold text-white">
+                      <td className="px-4 py-3 text-right font-semibold text-white">
                         {leader.total_volume.toLocaleString()}
                       </td>
-                      <td className="px-6 py-4 text-right text-green-400 font-medium">
+                      <td className="px-4 py-3 text-right text-green-400 font-medium">
                         {leader.best_score}
                       </td>
-                      <td className="px-6 py-4 text-right text-slate-400">
+                      <td className="px-4 py-3 text-right text-slate-400">
                         {leader.total_workouts}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            )}
-          </div>
+            </div>
+          )}
         </div>
       </main>
     </div>
   );
 }
+
