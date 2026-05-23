@@ -1,0 +1,17 @@
+{
+  "id": "pushup_standard",
+  "exercise_family": "pushup",
+  "variation": "standard",
+  "display_name_ko": "표준 푸쉬업",
+  "camera_view": "front",
+  "target_muscles": ["chest_mid", "triceps"],
+  "joints_used": ["elbow_left", "body_line"],
+  "rep_length_frames": 2,
+  "trajectory": { "elbow_left": [170, 90], "body_line": [178, 178] },
+  "embedding": null,
+  "phase_anchors": { "top": 0, "bottom": 0.5, "top2": 1 },
+  "rule_thresholds": { "elbow_top_min": 155, "elbow_bottom_max": 95, "body_line_min": 165 },
+  "captured_by": "stub",
+  "captured_at": "2026-05-22",
+  "version": 0
+}
