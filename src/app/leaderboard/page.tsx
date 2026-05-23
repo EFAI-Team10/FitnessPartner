@@ -29,7 +29,8 @@ export default function Leaderboard() {
                   user_id: w.user_id,
                   total_volume: 0,
                   best_score: 0,
-                  total_workouts: 0
+                  total_workouts: 0,
+                  score_sum: 0
                 };
               }
               aggregated[w.user_id].total_volume += w.reps * (w.weight > 0 ? w.weight : 1);
@@ -37,8 +38,12 @@ export default function Leaderboard() {
                 aggregated[w.user_id].best_score = w.score;
               }
               aggregated[w.user_id].total_workouts += 1;
+              aggregated[w.user_id].score_sum += w.score || 0;
             });
-            const sorted = Object.values(aggregated).sort((a: any, b: any) => b.total_volume - a.total_volume);
+            const sorted = Object.values(aggregated).map((item: any) => ({
+              ...item,
+              avg_score: item.total_workouts ? Math.round(item.score_sum / item.total_workouts) : 0
+            })).sort((a: any, b: any) => b.total_volume - a.total_volume);
             setLeaders(sorted);
           }
         } else {
@@ -95,6 +100,7 @@ export default function Leaderboard() {
                     <th className="px-4 py-3 font-semibold">User</th>
                     <th className="px-4 py-3 font-semibold text-right">Volume</th>
                     <th className="px-4 py-3 font-semibold text-right">Best</th>
+                    <th className="px-4 py-3 font-semibold text-right">Avg Form</th>
                     <th className="px-4 py-3 font-semibold text-right">Workouts</th>
                   </tr>
                 </thead>
@@ -120,6 +126,9 @@ export default function Leaderboard() {
                       <td className="px-4 py-3 text-right text-green-400 font-medium">
                         {leader.best_score}
                       </td>
+                      <td className="px-4 py-3 text-right text-cyan-400 font-medium">
+                        {leader.avg_score != null ? Math.round(leader.avg_score) : "—"}
+                      </td>
                       <td className="px-4 py-3 text-right text-slate-400">
                         {leader.total_workouts}
                       </td>
@@ -128,6 +137,7 @@ export default function Leaderboard() {
                 </tbody>
               </table>
             </div>
+
           )}
         </div>
       </main>
