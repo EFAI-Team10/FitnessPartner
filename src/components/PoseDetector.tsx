@@ -1,22 +1,28 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
+import { PoseLandmarker } from "@mediapipe/tasks-vision";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase";
+import { getBaseline } from "@/lib/baseline/registry";
+import { createPoseLandmarker, resultToFrame, pickModelVariant } from "@/lib/pose/mediapipe";
+import { computeJointAngles } from "@/lib/pose/features";
+import { RepSegmenter } from "@/lib/pose/segmenter";
 
 interface PoseDetectorProps {
-  exercise: "pushup" | "benchpress";
+  baselineId: string;
 }
 
-export default function PoseDetector({ exercise }: PoseDetectorProps) {
+export default function PoseDetector({ baselineId }: PoseDetectorProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [reps, setReps] = useState(0);
   const [feedback, setFeedback] = useState("Position yourself in front of the camera");
   const [score] = useState(100);
+
+  const baseline = getBaseline(baselineId);
 
   // Status state and ref to prevent stale closures inside requestAnimationFrame
   const [status, setStatus] = useState<'detecting' | 'preparing' | 'active' | 'saving' | 'completed'>('detecting');
@@ -43,6 +49,7 @@ export default function PoseDetector({ exercise }: PoseDetectorProps) {
   // Helper to save workout session to database
   const saveWorkout = useCallback(async (repCount: number) => {
     if (isSavingRef.current) return;
+    if (!baseline) return;
     isSavingRef.current = true;
     updateStatus('saving');
     setFeedback("Saving workout...");
@@ -58,7 +65,8 @@ export default function PoseDetector({ exercise }: PoseDetectorProps) {
       const { error } = await supabase.from('workouts').insert([
         {
           user_id: session.user.id,
-          exercise_type: exercise,
+          exercise_type: baseline.exercise_family,
+          // baseline_id: baseline.id, // TODO: Enable in Phase 1 (Task 18/19)
           reps: repCount,
           weight: 0, 
           score: score
@@ -77,7 +85,7 @@ export default function PoseDetector({ exercise }: PoseDetectorProps) {
       setFeedback("Failed to save: " + error.message);
       updateStatus('completed');
     }
-  }, [exercise, score]);
+  }, [baseline, score]);
 
   // Handler for auto stop trigger
   const triggerAutoFinish = useCallback(() => {
@@ -102,24 +110,20 @@ export default function PoseDetector({ exercise }: PoseDetectorProps) {
   }, [saveWorkout]);
 
   useEffect(() => {
+    if (!baseline) return;
+
     let poseLandmarker: PoseLandmarker | null = null;
     let animationFrameId: number;
     let lastVideoTime = -1;
 
+    const segmenter = new RepSegmenter({
+      topThreshold: baseline.rule_thresholds.elbow_top_min,
+      bottomThreshold: baseline.rule_thresholds.elbow_bottom_max,
+    });
+
     const initializeMediaPipe = async () => {
       try {
-        const vision = await FilesetResolver.forVisionTasks(
-          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
-        );
-        poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
-          baseOptions: {
-            modelAssetPath: `https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`,
-            delegate: "GPU"
-          },
-          runningMode: "VIDEO",
-          numPoses: 1
-        });
-        
+        poseLandmarker = await createPoseLandmarker(pickModelVariant());
         setIsLoaded(true);
         startCamera();
       } catch (error) {
@@ -163,22 +167,22 @@ export default function PoseDetector({ exercise }: PoseDetectorProps) {
         ctx.save();
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        if (results.landmarks && results.landmarks.length > 0) {
-          const landmarks = results.landmarks[0];
-          
+        const frame = resultToFrame(results, startTimeMs);
+
+        if (frame) {
           // Draw landmarks
           ctx.fillStyle = "#4f46e5"; // indigo-600
-          for (const landmark of landmarks) {
+          for (const landmark of frame.landmarks2D) {
             ctx.beginPath();
             ctx.arc(landmark.x * canvas.width, landmark.y * canvas.height, 5, 0, 2 * Math.PI);
             ctx.fill();
           }
           
           // Process exercise logic
-          processExercise(landmarks);
+          processExercise(frame);
         } else {
-          // Pass empty array to let the loop process visibility loss and idle timers
-          processExercise([]);
+          // Pass null to let the loop process visibility loss and idle timers
+          processExercise(null);
         }
         ctx.restore();
       }
@@ -186,18 +190,11 @@ export default function PoseDetector({ exercise }: PoseDetectorProps) {
       animationFrameId = requestAnimationFrame(predictWebcam);
     };
 
-    const processExercise = (landmarks: any[]) => {
-      const calculateAngle = (a: any, b: any, c: any) => {
-        const radians = Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x);
-        let angle = Math.abs((radians * 180.0) / Math.PI);
-        if (angle > 180.0) angle = 360 - angle;
-        return angle;
-      };
-
+    const processExercise = (frame: any) => {
       const currentStatus = statusRef.current;
 
       // Handle completely empty landmarks (visibility lost)
-      if (!landmarks || landmarks.length === 0) {
+      if (!frame || !frame.landmarks2D || frame.landmarks2D.length === 0) {
         if (currentStatus === 'active') {
           if (visibilityLossStartRef.current === null) {
             visibilityLossStartRef.current = Date.now();
@@ -220,13 +217,15 @@ export default function PoseDetector({ exercise }: PoseDetectorProps) {
         return;
       }
 
+      const landmarks = frame.landmarks2D;
+
       // Check full body visibility
       // Pushups: Left (11, 13, 15, 23, 25, 27) or Right (12, 14, 16, 24, 26, 28)
       // Benchpress: Left (11, 13, 15, 23, 25) or Right (12, 14, 16, 24, 26)
-      const leftKeypoints = exercise === "pushup" 
+      const leftKeypoints = baseline.exercise_family === "pushup" 
         ? [11, 13, 15, 23, 25, 27] 
         : [11, 13, 15, 23, 25];
-      const rightKeypoints = exercise === "pushup" 
+      const rightKeypoints = baseline.exercise_family === "pushup" 
         ? [12, 14, 16, 24, 26, 28] 
         : [12, 14, 16, 24, 26];
 
@@ -251,52 +250,8 @@ export default function PoseDetector({ exercise }: PoseDetectorProps) {
         visibleSide = 'right';
       }
 
-      if (currentStatus === 'detecting') {
-        if (visibleSide !== 'none') {
-          updateStatus('preparing');
-          startPoseStartTimestamp.current = null;
-          setFeedback("Hold starting position...");
-        } else {
-          setFeedback("Position your entire body in the camera frame");
-        }
-      } else if (currentStatus === 'preparing') {
-        if (visibleSide === 'none') {
-          updateStatus('detecting');
-          startPoseStartTimestamp.current = null;
-          setFeedback("Position your entire body in the camera frame");
-        } else {
-          // Check starting pose: arms extended
-          const shoulder = visibleSide === 'left' ? landmarks[11] : landmarks[12];
-          const elbow = visibleSide === 'left' ? landmarks[13] : landmarks[14];
-          const wrist = visibleSide === 'left' ? landmarks[15] : landmarks[16];
-          
-          const elbowAngle = calculateAngle(shoulder, elbow, wrist);
-          
-          if (elbowAngle > 150) {
-            if (startPoseStartTimestamp.current === null) {
-              startPoseStartTimestamp.current = Date.now();
-            }
-            const elapsed = Date.now() - startPoseStartTimestamp.current;
-            if (elapsed >= 1500) {
-              exerciseState.current.repCount = 0;
-              exerciseState.current.isDown = false;
-              setReps(0);
-              lastRepTimestamp.current = Date.now();
-              visibilityLossStartRef.current = null;
-              uprightStartTimestamp.current = null;
-              updateStatus('active');
-              setFeedback("Workout Active! Start reps.");
-            } else {
-              const remaining = Math.max(0, Math.ceil((1500 - elapsed) / 100)) / 10;
-              setFeedback(`Hold starting position (${remaining}s)`);
-            }
-          } else {
-            startPoseStartTimestamp.current = null;
-            setFeedback("Extend your arms completely to start");
-          }
-        }
-      } else if (currentStatus === 'active') {
-        if (visibleSide === 'none') {
+      if (visibleSide === 'none') {
+        if (currentStatus === 'active') {
           if (visibilityLossStartRef.current === null) {
             visibilityLossStartRef.current = Date.now();
           }
@@ -308,34 +263,67 @@ export default function PoseDetector({ exercise }: PoseDetectorProps) {
             const remaining = Math.max(0, Math.ceil((2500 - timeLost) / 1000));
             setFeedback(`Out of frame... Auto-stopping in ${remaining}s`);
           }
-          return;
+        } else if (currentStatus === 'preparing') {
+          updateStatus('detecting');
+          startPoseStartTimestamp.current = null;
+          setFeedback("Position yourself in front of the camera");
+        } else if (currentStatus === 'detecting') {
+          setFeedback("Position yourself in front of the camera");
         }
+        return;
+      }
 
-        // Reset visibility loss timer
-        visibilityLossStartRef.current = null;
+      // Reset visibility loss timer
+      visibilityLossStartRef.current = null;
 
-        // 1. Rep counting logic
-        const shoulder = visibleSide === 'left' ? landmarks[11] : landmarks[12];
-        const elbow = visibleSide === 'left' ? landmarks[13] : landmarks[14];
-        const wrist = visibleSide === 'left' ? landmarks[15] : landmarks[16];
-        const hip = visibleSide === 'left' ? landmarks[23] : landmarks[24];
+      // Extract angles
+      const angles = computeJointAngles(frame);
+      const elbowAngle = visibleSide === 'left'
+        ? (angles.elbow_left ?? angles.elbow_right ?? NaN)
+        : (angles.elbow_right ?? angles.elbow_left ?? NaN);
 
-        const elbowAngle = calculateAngle(shoulder, elbow, wrist);
-
-        if (elbowAngle > 155) {
-          if (exerciseState.current.isDown) {
-            exerciseState.current.repCount += 1;
-            setReps(exerciseState.current.repCount);
-            exerciseState.current.isDown = false;
-            lastRepTimestamp.current = Date.now();
-            setFeedback("Good! Keep going.");
+      if (currentStatus === 'detecting') {
+        updateStatus('preparing');
+        startPoseStartTimestamp.current = null;
+        setFeedback("Hold starting position...");
+      } else if (currentStatus === 'preparing') {
+        if (elbowAngle > 150) {
+          if (startPoseStartTimestamp.current === null) {
+            startPoseStartTimestamp.current = Date.now();
           }
-        } else if (elbowAngle < 95) {
-          exerciseState.current.isDown = true;
-          setFeedback(exercise === "pushup" ? "Push up!" : "Press up!");
+          const elapsed = Date.now() - startPoseStartTimestamp.current;
+          if (elapsed >= 1500) {
+            exerciseState.current.repCount = 0;
+            exerciseState.current.isDown = false;
+            setReps(0);
+            lastRepTimestamp.current = Date.now();
+            visibilityLossStartRef.current = null;
+            uprightStartTimestamp.current = null;
+            updateStatus('active');
+            setFeedback("Workout Active! Start reps.");
+          } else {
+            const remaining = Math.max(0, Math.ceil((1500 - elapsed) / 100)) / 10;
+            setFeedback(`Hold starting position (${remaining}s)`);
+          }
+        } else {
+          startPoseStartTimestamp.current = null;
+          setFeedback("Extend your arms completely to start");
+        }
+      } else if (currentStatus === 'active') {
+        // 1. Rep counting logic
+        const r = segmenter.push(performance.now(), elbowAngle);
+        if (r.repCompleted) {
+          exerciseState.current.repCount += 1;
+          setReps(exerciseState.current.repCount);
+          lastRepTimestamp.current = Date.now();
+          setFeedback("Good! Keep going.");
+        } else if (elbowAngle < baseline.rule_thresholds.elbow_bottom_max) {
+          setFeedback(baseline.exercise_family === "pushup" ? "Push up!" : "Press up!");
         }
 
         // 2. Upright posture auto-stop check
+        const shoulder = visibleSide === 'left' ? landmarks[11] : landmarks[12];
+        const hip = visibleSide === 'left' ? landmarks[23] : landmarks[24];
         if (shoulder && hip) {
           const dy = Math.abs(shoulder.y - hip.y);
           const dx = Math.abs(shoulder.x - hip.x);
@@ -382,7 +370,11 @@ export default function PoseDetector({ exercise }: PoseDetectorProps) {
         poseLandmarker.close();
       }
     };
-  }, [exercise, saveWorkout, triggerAutoFinish]);
+  }, [baselineId, saveWorkout, triggerAutoFinish, baseline]);
+
+  if (!baseline) {
+    return <div className="p-6 text-red-400">Unknown baseline: {baselineId}</div>;
+  }
 
   return (
     <div className="flex flex-1 flex-col bg-slate-950 text-white font-sans min-h-[calc(100vh-4rem)]">
@@ -485,7 +477,7 @@ export default function PoseDetector({ exercise }: PoseDetectorProps) {
                       </svg>
                     </div>
                     <h3 className="text-lg font-bold text-white mb-1">Workout Saved!</h3>
-                    <p className="text-xs text-slate-400 mb-4">{reps} reps of {exercise === 'pushup' ? 'Push-up' : 'Bench Press'}</p>
+                    <p className="text-xs text-slate-400 mb-4">{reps} reps of {baseline.exercise_family === 'pushup' ? 'Push-up' : 'Bench Press'}</p>
                     <span className="text-[10px] text-indigo-400 font-semibold tracking-wider animate-pulse">Redirecting to Leaderboard...</span>
                   </>
                 ) : (
@@ -537,4 +529,3 @@ export default function PoseDetector({ exercise }: PoseDetectorProps) {
     </div>
   );
 }
-
