@@ -9,6 +9,12 @@ import { getBaseline } from "@/lib/baseline/registry";
 import { createPoseLandmarker, resultToFrame, pickModelVariant } from "@/lib/pose/mediapipe";
 import { computeJointAngles } from "@/lib/pose/features";
 import { RepSegmenter } from "@/lib/pose/segmenter";
+import { frameGuidance } from "@/lib/coach/realtimeGuide";
+import { scoreRep, type ScoreResult } from "@/lib/coach/scoring";
+import { hintFromWorstJoint } from "@/lib/coach/defectMessages";
+import SkeletonOverlay from "./SkeletonOverlay";
+import FormHud from "./FormHud";
+import type { JointName, Landmark2D } from "@/types/exercise";
 
 interface PoseDetectorProps {
   baselineId: string;
@@ -16,11 +22,9 @@ interface PoseDetectorProps {
 
 export default function PoseDetector({ baselineId }: PoseDetectorProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [reps, setReps] = useState(0);
   const [feedback, setFeedback] = useState("Position yourself in front of the camera");
-  const [score] = useState(100);
 
   const baseline = getBaseline(baselineId);
 
@@ -41,6 +45,14 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
   const lastRepTimestamp = useRef<number>(0);
   const isSavingRef = useRef<boolean>(false);
 
+  // Phase 1 real-time coaching states
+  const currentRepAngles = useRef<Partial<Record<JointName, number[]>>>({});
+  const [repScores, setRepScores] = useState<number[]>([]);
+  const [hint, setHint] = useState<string | null>(null);
+  const [phase, setPhase] = useState(0);
+  const [deviations, setDeviations] = useState<Partial<Record<JointName, number>>>({});
+  const [overlayLandmarks, setOverlayLandmarks] = useState<Landmark2D[] | null>(null);
+
   const updateStatus = (newStatus: 'detecting' | 'preparing' | 'active' | 'saving' | 'completed') => {
     statusRef.current = newStatus;
     setStatus(newStatus);
@@ -54,6 +66,8 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
     updateStatus('saving');
     setFeedback("Saving workout...");
 
+    const avgScore = repScores.length ? Math.round(repScores.reduce((a, b) => a + b, 0) / repScores.length) : 0;
+
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
@@ -66,10 +80,12 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
         {
           user_id: session.user.id,
           exercise_type: baseline.exercise_family,
-          // baseline_id: baseline.id, // TODO: Enable in Phase 1 (Task 18/19)
+          baseline_id: baseline.id,
           reps: repCount,
           weight: 0, 
-          score: score
+          score: avgScore,
+          rep_scores: repScores,
+          defects: {},
         }
       ]);
 
@@ -85,7 +101,7 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
       setFeedback("Failed to save: " + error.message);
       updateStatus('completed');
     }
-  }, [baseline, score]);
+  }, [baseline, repScores]);
 
   // Handler for auto stop trigger
   const triggerAutoFinish = useCallback(() => {
@@ -149,42 +165,25 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
 
     const predictWebcam = () => {
       const video = videoRef.current;
-      const canvas = canvasRef.current;
       
-      if (!video || !canvas || !poseLandmarker) return;
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      if (!video || !poseLandmarker) return;
 
       let startTimeMs = performance.now();
       if (lastVideoTime !== video.currentTime) {
         lastVideoTime = video.currentTime;
         const results = poseLandmarker.detectForVideo(video, startTimeMs);
 
-        ctx.save();
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-
         const frame = resultToFrame(results, startTimeMs);
 
         if (frame) {
-          // Draw landmarks
-          ctx.fillStyle = "#4f46e5"; // indigo-600
-          for (const landmark of frame.landmarks2D) {
-            ctx.beginPath();
-            ctx.arc(landmark.x * canvas.width, landmark.y * canvas.height, 5, 0, 2 * Math.PI);
-            ctx.fill();
-          }
-          
+          setOverlayLandmarks(frame.landmarks2D);
           // Process exercise logic
           processExercise(frame);
         } else {
+          setOverlayLandmarks(null);
           // Pass null to let the loop process visibility loss and idle timers
           processExercise(null);
         }
-        ctx.restore();
       }
 
       animationFrameId = requestAnimationFrame(predictWebcam);
@@ -195,6 +194,8 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
 
       // Handle completely empty landmarks (visibility lost)
       if (!frame || !frame.landmarks2D || frame.landmarks2D.length === 0) {
+        setDeviations({});
+        setPhase(0);
         if (currentStatus === 'active') {
           if (visibilityLossStartRef.current === null) {
             visibilityLossStartRef.current = Date.now();
@@ -251,6 +252,8 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
       }
 
       if (visibleSide === 'none') {
+        setDeviations({});
+        setPhase(0);
         if (currentStatus === 'active') {
           if (visibilityLossStartRef.current === null) {
             visibilityLossStartRef.current = Date.now();
@@ -283,10 +286,14 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
         : (angles.elbow_right ?? angles.elbow_left ?? NaN);
 
       if (currentStatus === 'detecting') {
+        setDeviations({});
+        setPhase(0);
         updateStatus('preparing');
         startPoseStartTimestamp.current = null;
         setFeedback("Hold starting position...");
       } else if (currentStatus === 'preparing') {
+        setDeviations({});
+        setPhase(0);
         if (elbowAngle > 150) {
           if (startPoseStartTimestamp.current === null) {
             startPoseStartTimestamp.current = Date.now();
@@ -296,6 +303,8 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
             exerciseState.current.repCount = 0;
             exerciseState.current.isDown = false;
             setReps(0);
+            setRepScores([]);
+            currentRepAngles.current = {};
             lastRepTimestamp.current = Date.now();
             visibilityLossStartRef.current = null;
             uprightStartTimestamp.current = null;
@@ -310,18 +319,50 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
           setFeedback("Extend your arms completely to start");
         }
       } else if (currentStatus === 'active') {
-        // 1. Rep counting logic
+        // 1) Accumulate per-rep angles
+        for (const joint of baseline.joints_used) {
+          const v = angles[joint];
+          if (Number.isFinite(v)) {
+            if (!currentRepAngles.current[joint]) currentRepAngles.current[joint] = [];
+            currentRepAngles.current[joint]!.push(v as number);
+          }
+        }
+
+        // 2) Real-time guidance (rule-based, no model)
+        const g = frameGuidance(baseline, angles);
+        setDeviations(g.deviations);
+        setPhase(g.phase);
+
+        // Hint: only show when ok=false to avoid spam
+        if (!g.ok && g.worstJoint) {
+          const series = baseline.trajectory[g.worstJoint]!;
+          const idx = g.phase * (series.length - 1);
+          const lo = Math.min(Math.floor(idx), series.length - 1);
+          const exp = series[lo];
+          const cur = angles[g.worstJoint]!;
+          setHint(hintFromWorstJoint(g.worstJoint, cur - exp)?.message ?? null);
+        } else {
+          setHint(null);
+        }
+
+        // 3) Rep boundary
         const r = segmenter.push(performance.now(), elbowAngle);
         if (r.repCompleted) {
           exerciseState.current.repCount += 1;
           setReps(exerciseState.current.repCount);
+
+          const userTraj = currentRepAngles.current;
+          const result: ScoreResult = scoreRep(baseline, userTraj);
+          setRepScores((prev) => [...prev, result.score]);
+
+          currentRepAngles.current = {};
           lastRepTimestamp.current = Date.now();
           setFeedback("Good! Keep going.");
         } else if (elbowAngle < baseline.rule_thresholds.elbow_bottom_max) {
           setFeedback(baseline.exercise_family === "pushup" ? "Push up!" : "Press up!");
         }
 
-        // 2. Upright posture auto-stop check
+        // 4. Upright posture auto-stop check
         const shoulder = visibleSide === 'left' ? landmarks[11] : landmarks[12];
         const hip = visibleSide === 'left' ? landmarks[23] : landmarks[24];
         if (shoulder && hip) {
@@ -345,7 +386,7 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
           }
         }
 
-        // 3. Stationary/No-rep auto-stop check (5 seconds limit)
+        // 5. Stationary/No-rep auto-stop check (5 seconds limit)
         const idleTime = Date.now() - lastRepTimestamp.current;
         if (idleTime > 5000) {
           setFeedback("Stationary timeout. Finishing...");
@@ -394,17 +435,13 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
         )}
       </header>
 
-      {/* Floating Status Bar for Reps & Score */}
-      <div className="absolute top-16 left-4 right-4 z-40 flex gap-3">
-        <div className="flex-1 backdrop-blur-md bg-black/60 px-4 py-2 rounded-xl border border-white/5 flex items-center justify-between shadow-lg">
-          <span className="text-slate-400 text-[10px] uppercase tracking-wider font-bold">Reps</span>
-          <span className="text-2xl font-extrabold text-indigo-400">{reps}</span>
-        </div>
-        <div className="flex-1 backdrop-blur-md bg-black/60 px-4 py-2 rounded-xl border border-white/5 flex items-center justify-between shadow-lg">
-          <span className="text-slate-400 text-[10px] uppercase tracking-wider font-bold">Score</span>
-          <span className="text-2xl font-extrabold text-green-400">{score}</span>
-        </div>
-      </div>
+      <FormHud
+        reps={reps}
+        lastRepScore={repScores.length ? repScores[repScores.length - 1] : null}
+        averageScore={repScores.length ? Math.round(repScores.reduce((a, b) => a + b, 0) / repScores.length) : null}
+        hint={hint}
+        phase={phase}
+      />
 
       <main className="flex-1 relative flex items-center justify-center overflow-hidden px-4">
         {!isLoaded && (
@@ -424,10 +461,13 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
             playsInline
             muted
           ></video>
-          <canvas 
-            ref={canvasRef} 
+          <SkeletonOverlay
+            landmarks={overlayLandmarks}
+            deviations={deviations}
+            width={1280}
+            height={720}
             className="absolute inset-0 w-full h-full object-cover transform -scale-x-100"
-          ></canvas>
+          />
 
           {/* Dynamic Status Overlays */}
           {status === 'detecting' && (
@@ -461,7 +501,7 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
                   <div className="absolute inset-0 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
                 </div>
                 <h3 className="text-lg font-bold text-white mb-2">Analyzing Form</h3>
-                <p className="text-xs text-slate-400">Saving your workout record to leaderboard...</p>
+                <p className="text-xs text-slate-440">Saving your workout record to leaderboard...</p>
               </div>
             </div>
           )}
