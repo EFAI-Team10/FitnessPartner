@@ -7,6 +7,8 @@ ALTER TABLE workouts
   ADD COLUMN IF NOT EXISTS defects JSONB DEFAULT '{}'::jsonb;
 
 -- Update the leaderboard view to surface average form score.
+DROP VIEW IF EXISTS leaderboard;
+
 CREATE OR REPLACE VIEW leaderboard AS
 SELECT
   user_id,
