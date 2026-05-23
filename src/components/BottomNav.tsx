@@ -37,6 +37,10 @@ export default function BottomNav() {
     return null;
   }
 
+  if (pathname.startsWith("/capture")) {
+    return null;
+  }
+
   const navItems = [
     { name: "Home", href: "/", icon: Home },
     { name: "Workout", href: "/workout", icon: Activity },
