@@ -1,0 +1,26 @@
+{
+  "id": "pushup_standard",
+  "exercise_family": "pushup",
+  "variation": "standard",
+  "display_name_ko": "standard pushup",
+  "camera_view": "side",
+  "target_muscles": [],
+  "joints_used": [],
+  "rep_length_frames": 50,
+  "trajectory": {},
+  "embedding": null,
+  "phase_anchors": {
+    "top": 0,
+    "bottom": 0.5,
+    "top2": 1
+  },
+  "rule_thresholds": {
+    "elbow_top_min": 140,
+    "elbow_bottom_max": 110,
+    "body_line_min": 165
+  },
+  "captured_by": "team_A",
+  "captured_at": "2026-05-23",
+  "version": 1,
+  "source_reps": 10
+}
