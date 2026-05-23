@@ -17,7 +17,7 @@ export type JointName =
   | "body_line"; // shoulder–hip–ankle straightness
 
 export type ExerciseFamily = "pushup" | "benchpress" | "squat";
-export type CameraView = "front" | "side";
+export type CameraView = "front" | "side" | "diagonal";
 
 export interface Landmark2D {
   x: number; // 0..1
