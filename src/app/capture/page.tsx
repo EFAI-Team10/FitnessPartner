@@ -30,7 +30,7 @@ export default function CapturePage() {
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const [settings, setSettings] = useState<CaptureSettings>({
-    family: "pushup", variation: "standard", subject: "team_A", quality: "good", defects: [],
+    family: "pushup", variation: "standard", cameraView: "side", subject: "team_A", quality: "good", defects: [],
   });
   const [recording, setRecording] = useState(false);
   const [reps, setReps] = useState<CapturedRep[]>([]);
@@ -153,7 +153,7 @@ export default function CapturePage() {
       exercise_family: settings.family,
       variation: settings.variation,
       display_name_ko: `${settings.variation} ${settings.family}`,
-      camera_view: "front",
+      camera_view: settings.cameraView,
       target_muscles: [],
       joints_used: BASELINE_JOINTS.filter((j) => j in trajectory),
       rep_length_frames: BASELINE_FRAMES,

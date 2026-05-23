@@ -15,10 +15,17 @@ const DEFECT_OPTIONS = [
 export interface CaptureSettings {
   family: ExerciseFamily;
   variation: string;
+  cameraView: "side" | "front" | "diagonal";
   subject: string;
   quality: "good" | "bad";
   defects: string[];
 }
+
+const CAMERA_VIEW_OPTIONS = [
+  { value: "side",     label: "측면 90° (권장)", hint: "📷 ─── 🧍" },
+  { value: "front",    label: "정면",             hint: "🧍 ─── 📷" },
+  { value: "diagonal", label: "대각선 45°",       hint: "📷 ↗ 🧍" },
+] as const;
 
 export default function CaptureControls(props: {
   value: CaptureSettings;
@@ -56,6 +63,28 @@ export default function CaptureControls(props: {
           </select>
         </label>
       </div>
+
+      {/* Camera view selector */}
+      <label className="block">
+        <span className="text-slate-400 uppercase">카메라 위치</span>
+        <div className="mt-1 grid grid-cols-3 gap-1.5">
+          {CAMERA_VIEW_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange({ ...value, cameraView: opt.value })}
+              className={`py-2 px-1 rounded-lg border text-center transition-colors ${
+                value.cameraView === opt.value
+                  ? "border-indigo-500 bg-indigo-500/20 text-indigo-300"
+                  : "border-white/10 bg-slate-800 text-slate-400 hover:border-white/30"
+              }`}
+            >
+              <div className="text-sm mb-0.5">{opt.hint}</div>
+              <div className="text-[10px] leading-tight">{opt.label}</div>
+            </button>
+          ))}
+        </div>
+      </label>
       <label className="block">
         <span className="text-slate-400 uppercase">시연자</span>
         <input

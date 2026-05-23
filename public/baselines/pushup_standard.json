@@ -3,7 +3,7 @@
   "exercise_family": "pushup",
   "variation": "standard",
   "display_name_ko": "표준 푸쉬업",
-  "camera_view": "front",
+  "camera_view": "side",
   "target_muscles": ["chest_mid", "triceps", "shoulders_front"],
   "joints_used": ["elbow_left", "elbow_right", "shoulder_left", "shoulder_right", "hip_left", "hip_right", "body_line"],
   "rep_length_frames": 50,

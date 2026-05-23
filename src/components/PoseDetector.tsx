@@ -504,9 +504,32 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
           {status === 'detecting' && (
             <div className="absolute inset-0 border-2 border-indigo-500/30 flex flex-col items-center justify-center bg-indigo-950/10 backdrop-brightness-75 pointer-events-none">
               <div className="absolute inset-x-0 h-[2px] bg-gradient-to-r from-transparent via-indigo-500 to-transparent animate-pulse" style={{ animationDuration: '2s' }}></div>
-              <div className="flex flex-col items-center gap-2 p-4 rounded-xl bg-black/60 border border-indigo-500/20 backdrop-blur-md">
+              <div className="flex flex-col items-center gap-3 p-5 rounded-xl bg-black/70 border border-indigo-500/20 backdrop-blur-md max-w-[220px] text-center">
                 <div className="w-8 h-8 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin"></div>
                 <p className="text-[10px] text-indigo-300 font-bold uppercase tracking-wider animate-pulse">Scanning for User...</p>
+                {baseline.camera_view === "side" && (
+                  <div className="border-t border-white/10 pt-3 w-full">
+                    <p className="text-[9px] text-slate-400 uppercase tracking-wider mb-2">카메라 위치</p>
+                    <div className="text-lg font-mono tracking-widest text-slate-200">📷 ── 🧍</div>
+                    <p className="text-[10px] text-slate-400 mt-1">측면 90° · 허리 높이</p>
+                    <p className="text-[9px] text-slate-500 mt-0.5">몸 전체가 옆에서 보이도록</p>
+                  </div>
+                )}
+                {baseline.camera_view === "front" && (
+                  <div className="border-t border-white/10 pt-3 w-full">
+                    <p className="text-[9px] text-slate-400 uppercase tracking-wider mb-2">카메라 위치</p>
+                    <div className="text-lg font-mono tracking-widest text-slate-200">🧍 ── 📷</div>
+                    <p className="text-[10px] text-slate-400 mt-1">정면 · 어깨 높이</p>
+                    <p className="text-[9px] text-slate-500 mt-0.5">얼굴과 몸통이 보이도록</p>
+                  </div>
+                )}
+                {baseline.camera_view === "diagonal" && (
+                  <div className="border-t border-white/10 pt-3 w-full">
+                    <p className="text-[9px] text-slate-400 uppercase tracking-wider mb-2">카메라 위치</p>
+                    <div className="text-lg font-mono tracking-widest text-slate-200">📷 ↗ 🧍</div>
+                    <p className="text-[10px] text-slate-400 mt-1">대각선 45° · 허리 높이</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
