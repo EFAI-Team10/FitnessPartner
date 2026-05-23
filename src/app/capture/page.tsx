@@ -110,6 +110,26 @@ export default function CapturePage() {
       return;
     }
 
+    // DEBUG: inspect first rep's first frame to diagnose empty worldLandmarks
+    const firstRep = goodReps[0];
+    const firstFrame = firstRep?.frames[0];
+    if (firstFrame) {
+      const wlm = firstFrame.landmarksWorld;
+      const allZero = wlm.every(p => p.x === 0 && p.y === 0 && p.z === 0);
+      console.group("[generateBaseline] debug");
+      console.log(`good reps: ${goodReps.length}, frames in rep[0]: ${firstRep.frames.length}`);
+      console.log(`worldLandmarks all-zero: ${allZero}`);
+      console.log("sample wlm[11] (leftShoulder):", wlm[11]);
+      console.log("sample wlm[13] (leftElbow):", wlm[13]);
+      const sampleAngles = computeJointAngles(firstFrame);
+      console.log("angles from frame[0]:", sampleAngles);
+      console.groupEnd();
+      if (allZero) {
+        alert("⚠️ worldLandmarks가 전부 0입니다.\nMediaPipe GPU delegate 문제일 수 있습니다.\n브라우저 콘솔을 확인하세요.");
+        return;
+      }
+    }
+
     // 1. Per-rep angle trajectory per joint (raw frames → angle series)
     const perRepTrajectories: Partial<Record<JointName, number[]>>[] = goodReps.map((rep) => {
       const byJoint: Partial<Record<JointName, number[]>> = {};
