@@ -48,6 +48,7 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
 
   // Phase 1 real-time coaching states
   const currentRepAngles = useRef<Partial<Record<JointName, number[]>>>({});
+  const currentRepDefects = useRef<Set<string>>(new Set());
   const [repScores, setRepScores] = useState<number[]>([]);
   const [hint, setHint] = useState<string | null>(null);
   const [phase, setPhase] = useState(0);
@@ -316,6 +317,7 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
             defectCountsRef.current = {};
             setDefectCounts({});
             currentRepAngles.current = {};
+            currentRepDefects.current.clear();
             lastRepTimestamp.current = Date.now();
             visibilityLossStartRef.current = null;
             uprightStartTimestamp.current = null;
@@ -354,11 +356,8 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
           const hintObj = hintFromWorstJoint(g.worstJoint, cur - exp);
           if (hintObj) {
             setHint(hintObj.message);
-            defectCountsRef.current = {
-              ...defectCountsRef.current,
-              [hintObj.id]: (defectCountsRef.current[hintObj.id] ?? 0) + 1,
-            };
-            setDefectCounts({ ...defectCountsRef.current });
+            // Track the defect for the current rep
+            currentRepDefects.current.add(hintObj.id);
           } else {
             setHint(null);
           }
@@ -377,6 +376,16 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
           repScoresRef.current = [...repScoresRef.current, result.score];
           setRepScores([...repScoresRef.current]);
 
+          // Commit defects from the current rep
+          currentRepDefects.current.forEach(defectId => {
+            defectCountsRef.current = {
+              ...defectCountsRef.current,
+              [defectId]: (defectCountsRef.current[defectId] ?? 0) + 1,
+            };
+          });
+          setDefectCounts({ ...defectCountsRef.current });
+          currentRepDefects.current.clear();
+
           currentRepAngles.current = {};
           lastRepTimestamp.current = Date.now();
           setFeedback("Good! Keep going.");
@@ -384,10 +393,10 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
           setFeedback(baseline.exercise_family === "pushup" ? "Push up!" : "Press up!");
         }
 
-        // 4. Upright posture auto-stop check
+        // 4. Upright posture auto-stop check (Only for pushups in side view)
         const shoulder = visibleSide === 'left' ? landmarks[11] : landmarks[12];
         const hip = visibleSide === 'left' ? landmarks[23] : landmarks[24];
-        if (shoulder && hip) {
+        if (shoulder && hip && baseline.exercise_family === "pushup" && baseline.camera_view === "side") {
           const dy = Math.abs(shoulder.y - hip.y);
           const dx = Math.abs(shoulder.x - hip.x);
           
@@ -408,14 +417,14 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
           }
         }
 
-        // 5. Stationary/No-rep auto-stop check (5 seconds limit)
+        // 5. Stationary/No-rep auto-stop check (10 seconds limit)
         const idleTime = Date.now() - lastRepTimestamp.current;
-        if (idleTime > 5000) {
+        if (idleTime > 10000) {
           setFeedback("Stationary timeout. Finishing...");
           triggerAutoFinish();
           return;
-        } else if (idleTime > 3000) {
-          const remaining = Math.max(0, Math.ceil((5000 - idleTime) / 1000));
+        } else if (idleTime > 7000) {
+          const remaining = Math.max(0, Math.ceil((10000 - idleTime) / 1000));
           setFeedback(`Idle... Auto-stopping in ${remaining}s`);
         }
       }
@@ -549,6 +558,7 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
                 setRepScores([]);
                 defectCountsRef.current = {};
                 setDefectCounts({});
+                currentRepDefects.current.clear();
                 isSavingRef.current = false;
                 updateStatus('detecting');
               }}
