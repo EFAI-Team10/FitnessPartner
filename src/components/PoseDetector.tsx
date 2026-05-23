@@ -14,6 +14,7 @@ import { scoreRep, type ScoreResult } from "@/lib/coach/scoring";
 import { hintFromWorstJoint } from "@/lib/coach/defectMessages";
 import SkeletonOverlay from "./SkeletonOverlay";
 import FormHud from "./FormHud";
+import WorkoutResultCard from "./WorkoutResultCard";
 import type { JointName, Landmark2D } from "@/types/exercise";
 
 interface PoseDetectorProps {
@@ -52,6 +53,7 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
   const [phase, setPhase] = useState(0);
   const [deviations, setDeviations] = useState<Partial<Record<JointName, number>>>({});
   const [overlayLandmarks, setOverlayLandmarks] = useState<Landmark2D[] | null>(null);
+  const [defectCounts, setDefectCounts] = useState<Record<string, number>>({});
 
   const updateStatus = (newStatus: 'detecting' | 'preparing' | 'active' | 'saving' | 'completed') => {
     statusRef.current = newStatus;
@@ -85,23 +87,19 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
           weight: 0, 
           score: avgScore,
           rep_scores: repScores,
-          defects: {},
+          defects: defectCounts,
         }
       ]);
 
       if (error) throw error;
       setFeedback("Workout saved successfully!");
       updateStatus('completed');
-      
-      setTimeout(() => {
-        window.location.href = "/leaderboard";
-      }, 1500);
     } catch (error: any) {
       console.error("Error saving workout:", error.message);
       setFeedback("Failed to save: " + error.message);
       updateStatus('completed');
     }
-  }, [baseline, repScores]);
+  }, [baseline, repScores, defectCounts]);
 
   // Handler for auto stop trigger
   const triggerAutoFinish = useCallback(() => {
@@ -304,6 +302,7 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
             exerciseState.current.isDown = false;
             setReps(0);
             setRepScores([]);
+            setDefectCounts({});
             currentRepAngles.current = {};
             lastRepTimestamp.current = Date.now();
             visibilityLossStartRef.current = null;
@@ -340,7 +339,13 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
           const lo = Math.min(Math.floor(idx), series.length - 1);
           const exp = series[lo];
           const cur = angles[g.worstJoint]!;
-          setHint(hintFromWorstJoint(g.worstJoint, cur - exp)?.message ?? null);
+          const hintObj = hintFromWorstJoint(g.worstJoint, cur - exp);
+          if (hintObj) {
+            setHint(hintObj.message);
+            setDefectCounts((prev) => ({ ...prev, [hintObj.id]: (prev[hintObj.id] ?? 0) + 1 }));
+          } else {
+            setHint(null);
+          }
         } else {
           setHint(null);
         }
@@ -448,7 +453,7 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
           <div className="absolute inset-0 flex items-center justify-center bg-slate-900 z-10">
             <div className="flex flex-col items-center">
               <div className="w-10 h-10 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3"></div>
-              <p className="text-xs text-slate-450">Loading AI Models...</p>
+              <p className="text-xs text-slate-455">Loading AI Models...</p>
             </div>
           </div>
         )}
@@ -507,51 +512,27 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
           )}
 
           {status === 'completed' && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-md z-50 p-6">
-              <div className="flex flex-col items-center text-center max-w-sm">
-                {reps > 0 ? (
-                  <>
-                    <div className="w-12 h-12 bg-green-500/10 border border-green-500/30 rounded-full flex items-center justify-center mb-4">
-                      <svg className="w-6 h-6 text-green-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                    <h3 className="text-lg font-bold text-white mb-1">Workout Saved!</h3>
-                    <p className="text-xs text-slate-400 mb-4">{reps} reps of {baseline.exercise_family === 'pushup' ? 'Push-up' : 'Bench Press'}</p>
-                    <span className="text-[10px] text-indigo-400 font-semibold tracking-wider animate-pulse">Redirecting to Leaderboard...</span>
-                  </>
-                ) : (
-                  <>
-                    <div className="w-12 h-12 bg-slate-800 border border-slate-700 rounded-full flex items-center justify-center mb-4">
-                      <svg className="w-6 h-6 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                      </svg>
-                    </div>
-                    <h3 className="text-lg font-bold text-white mb-2">Workout Ended</h3>
-                    <p className="text-xs text-slate-450 mb-6 px-4">No reps were completed. Please assume the starting pose to begin counting.</p>
-                    <div className="flex gap-3 w-full px-4">
-                      <button
-                        onClick={() => {
-                          exerciseState.current.repCount = 0;
-                          exerciseState.current.isDown = false;
-                          setReps(0);
-                          updateStatus('detecting');
-                        }}
-                        className="flex-1 bg-indigo-650 hover:bg-indigo-650 text-white py-2 rounded-xl text-xs font-bold transition-all border border-indigo-400/40"
-                      >
-                        Try Again
-                      </button>
-                      <Link
-                        href="/workout"
-                        className="flex-1 bg-slate-850 hover:bg-slate-800 text-slate-300 py-2 rounded-xl text-xs font-bold text-center border border-slate-700 flex items-center justify-center"
-                      >
-                        Go Back
-                      </Link>
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
+            <WorkoutResultCard
+              reps={reps}
+              repScores={repScores}
+              defectCounts={defectCounts}
+              defectLabels={{
+                hip_sag: "엉덩이 처짐",
+                hip_pike: "엉덩이 솟음",
+                elbow_flare: "팔꿈치 외전",
+                shallow_rom: "ROM 부족",
+                shoulder_tight: "어깨 경직",
+                deep_overload: "과한 하강",
+              }}
+              onRetry={() => {
+                exerciseState.current.repCount = 0;
+                exerciseState.current.isDown = false;
+                setReps(0);
+                setRepScores([]);
+                setDefectCounts({});
+                updateStatus('detecting');
+              }}
+            />
           )}
 
           {/* Feedback Overlay */}
