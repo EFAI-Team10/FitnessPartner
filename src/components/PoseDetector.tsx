@@ -55,12 +55,20 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
   const [overlayLandmarks, setOverlayLandmarks] = useState<Landmark2D[] | null>(null);
   const [defectCounts, setDefectCounts] = useState<Record<string, number>>({});
 
+  // Refs that mirror repScores/defectCounts for use inside saveWorkout without
+  // adding them as useCallback/useEffect deps — prevents MediaPipe from
+  // restarting every time a hint fires (the root cause of the freeze bug).
+  const repScoresRef = useRef<number[]>([]);
+  const defectCountsRef = useRef<Record<string, number>>({});
+
   const updateStatus = (newStatus: 'detecting' | 'preparing' | 'active' | 'saving' | 'completed') => {
     statusRef.current = newStatus;
     setStatus(newStatus);
   };
 
-  // Helper to save workout session to database
+  // Helper to save workout session to database.
+  // Uses repScoresRef/defectCountsRef (not state) so this callback's identity
+  // stays stable across renders — avoids restarting the MediaPipe useEffect.
   const saveWorkout = useCallback(async (repCount: number) => {
     if (isSavingRef.current) return;
     if (!baseline) return;
@@ -68,7 +76,9 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
     updateStatus('saving');
     setFeedback("Saving workout...");
 
-    const avgScore = repScores.length ? Math.round(repScores.reduce((a, b) => a + b, 0) / repScores.length) : 0;
+    const scores = repScoresRef.current;
+    const defects = defectCountsRef.current;
+    const avgScore = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -84,10 +94,10 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
           exercise_type: baseline.exercise_family,
           baseline_id: baseline.id,
           reps: repCount,
-          weight: 0, 
+          weight: 0,
           score: avgScore,
-          rep_scores: repScores,
-          defects: defectCounts,
+          rep_scores: scores,
+          defects: defects,
         }
       ]);
 
@@ -99,7 +109,7 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
       setFeedback("Failed to save: " + error.message);
       updateStatus('completed');
     }
-  }, [baseline, repScores, defectCounts]);
+  }, [baseline]); // ← repScores/defectCounts removed: access via refs instead
 
   // Handler for auto stop trigger
   const triggerAutoFinish = useCallback(() => {
@@ -301,7 +311,9 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
             exerciseState.current.repCount = 0;
             exerciseState.current.isDown = false;
             setReps(0);
+            repScoresRef.current = [];
             setRepScores([]);
+            defectCountsRef.current = {};
             setDefectCounts({});
             currentRepAngles.current = {};
             lastRepTimestamp.current = Date.now();
@@ -342,7 +354,11 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
           const hintObj = hintFromWorstJoint(g.worstJoint, cur - exp);
           if (hintObj) {
             setHint(hintObj.message);
-            setDefectCounts((prev) => ({ ...prev, [hintObj.id]: (prev[hintObj.id] ?? 0) + 1 }));
+            defectCountsRef.current = {
+              ...defectCountsRef.current,
+              [hintObj.id]: (defectCountsRef.current[hintObj.id] ?? 0) + 1,
+            };
+            setDefectCounts({ ...defectCountsRef.current });
           } else {
             setHint(null);
           }
@@ -358,7 +374,8 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
 
           const userTraj = currentRepAngles.current;
           const result: ScoreResult = scoreRep(baseline, userTraj);
-          setRepScores((prev) => [...prev, result.score]);
+          repScoresRef.current = [...repScoresRef.current, result.score];
+          setRepScores([...repScoresRef.current]);
 
           currentRepAngles.current = {};
           lastRepTimestamp.current = Date.now();
@@ -528,8 +545,11 @@ export default function PoseDetector({ baselineId }: PoseDetectorProps) {
                 exerciseState.current.repCount = 0;
                 exerciseState.current.isDown = false;
                 setReps(0);
+                repScoresRef.current = [];
                 setRepScores([]);
+                defectCountsRef.current = {};
                 setDefectCounts({});
+                isSavingRef.current = false;
                 updateStatus('detecting');
               }}
             />
